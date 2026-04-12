@@ -596,13 +596,33 @@ def cache_clear() -> None:
 # ---------------------------------------------------------------------------
 
 
-def save_video_to_repo(video_path: Path, timestamp: str) -> Path:
-    """Copy the generated video into the repo's videos/ directory for safekeeping."""
+def save_video_to_repo(video_path: Path, timestamp: str, content: dict) -> Path:
+    """Copy the generated video and its YouTube metadata into the repo's videos/ directory."""
     videos_dir = REPO_ROOT / "videos"
     videos_dir.mkdir(exist_ok=True)
+
+    # Save the complete video file
     dest = videos_dir / f"{timestamp}.mp4"
     shutil.copy2(video_path, dest)
     print(f"[Backup] Video saved to repository: videos/{timestamp}.mp4")
+
+    # Save a companion metadata JSON so the video can be manually uploaded to YouTube
+    meta_dest = videos_dir / f"{timestamp}.json"
+    title = content.get("title", "")
+    if "#Shorts" not in title:
+        title = f"{title} #Shorts"
+    metadata = {
+        "timestamp": timestamp,
+        "title": title[:100],
+        "description": content.get("description", ""),
+        "tags": content.get("tags", []),
+        "script": content.get("script", ""),
+        "youtube_category_id": YOUTUBE_CATEGORY_ID,
+        "privacy": YOUTUBE_PRIVACY,
+    }
+    meta_dest.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[Backup] Metadata saved to repository: videos/{timestamp}.json")
+
     return dest
 
 
@@ -629,9 +649,12 @@ def write_log_entry(
 
     if repo_video_path is not None:
         video_rel = repo_video_path.relative_to(REPO_ROOT)
+        meta_rel = video_rel.with_suffix(".json")
         video_cell = f"[{video_rel}]({video_rel})"
+        meta_cell = f"[{meta_rel}]({meta_rel})"
     else:
         video_cell = "N/A (generation failed before save)"
+        meta_cell = "N/A"
 
     date_display = timestamp.replace("_", " ").replace("-", ":", 2)
 
@@ -641,6 +664,7 @@ def write_log_entry(
         f"|---|---|\n"
         f"| **Title** | {content.get('title', 'N/A')} |\n"
         f"| **Video** | {video_cell} |\n"
+        f"| **Metadata (for manual upload)** | {meta_cell} |\n"
         f"| **YouTube** | {status} |\n"
         f"| **Script preview** | {script_preview} |\n\n"
         f"---\n"
@@ -725,8 +749,8 @@ def main() -> None:
             output_path=video_path,
         )
 
-        # 5b. Back up the video to the repository before attempting upload
-        repo_video_path = save_video_to_repo(video_path, timestamp)
+        # 5b. Back up the video and metadata to the repository before attempting upload
+        repo_video_path = save_video_to_repo(video_path, timestamp, content)
 
         # 6. Upload to YouTube (errors are caught so the log is always written)
         youtube_url: Optional[str] = None
