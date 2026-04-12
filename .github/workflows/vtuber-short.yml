@@ -31,6 +31,11 @@ jobs:
       # Install FFmpeg and fonts for video composition and subtitle rendering
       - name: Install system dependencies
         run: |
+          # Remove broken Microsoft apt repositories that ship on ubuntu-latest runners
+          # and currently return 403 errors, causing apt-get update to fail.
+          sudo rm -f /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/microsoft-prod.list.save
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg fonts-liberation fonts-noto
 
