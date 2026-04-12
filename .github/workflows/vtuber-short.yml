@@ -17,7 +17,7 @@ on:
         default: ""
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate-and-upload:
@@ -56,3 +56,17 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           CUSTOM_TOPIC: ${{ inputs.custom_topic }}
         run: python scripts/generate_short.py
+
+      # Commit the video backup and log even if the YouTube upload step failed
+      - name: Commit video backup and log to repository
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add videos/ logs/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit."
+          else
+            git commit -m "chore: auto-backup video and update upload log [skip ci]"
+            git push
+          fi

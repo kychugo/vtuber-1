@@ -24,12 +24,14 @@ Required GitHub Secrets:
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import textwrap
 import time
 import urllib.parse
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -529,11 +531,82 @@ def upload_to_youtube(video_path: Path, content: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Repository backup & log
+# ---------------------------------------------------------------------------
+
+
+def save_video_to_repo(video_path: Path, timestamp: str) -> Path:
+    """Copy the generated video into the repo's videos/ directory for safekeeping."""
+    videos_dir = REPO_ROOT / "videos"
+    videos_dir.mkdir(exist_ok=True)
+    dest = videos_dir / f"{timestamp}.mp4"
+    shutil.copy2(video_path, dest)
+    print(f"[Backup] Video saved to repository: videos/{timestamp}.mp4")
+    return dest
+
+
+def write_log_entry(
+    timestamp: str,
+    content: dict,
+    repo_video_path: Optional[Path],
+    youtube_url: Optional[str],
+    upload_error: Optional[str],
+) -> None:
+    """Append a run record to logs/upload_log.md."""
+    logs_dir = REPO_ROOT / "logs"
+    logs_dir.mkdir(exist_ok=True)
+    log_file = logs_dir / "upload_log.md"
+
+    if youtube_url:
+        status = f"✅ Uploaded — [{youtube_url}]({youtube_url})"
+    else:
+        status = f"❌ Upload failed — `{upload_error}`"
+
+    script_preview = content.get("script", "").replace("\n", " ").strip()
+    if len(script_preview) > 200:
+        script_preview = script_preview[:197] + "…"
+
+    if repo_video_path is not None:
+        video_rel = repo_video_path.relative_to(REPO_ROOT)
+        video_cell = f"[{video_rel}]({video_rel})"
+    else:
+        video_cell = "N/A (generation failed before save)"
+
+    date_display = timestamp.replace("_", " ").replace("-", ":", 2)
+
+    entry = (
+        f"\n## {date_display} UTC\n\n"
+        f"| Field | Value |\n"
+        f"|---|---|\n"
+        f"| **Title** | {content.get('title', 'N/A')} |\n"
+        f"| **Video** | {video_cell} |\n"
+        f"| **YouTube** | {status} |\n"
+        f"| **Script preview** | {script_preview} |\n\n"
+        f"---\n"
+    )
+
+    if not log_file.exists():
+        log_file.write_text(
+            "# VTuber Short Upload Log\n\n"
+            "Each row is one automated run. Newest entries are at the bottom.\n",
+            encoding="utf-8",
+        )
+
+    with log_file.open("a", encoding="utf-8") as f:
+        f.write(entry)
+
+    print(f"[Log] Entry written to logs/upload_log.md")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+    repo_video_path: Optional[Path] = None
+
     with tempfile.TemporaryDirectory(prefix="vtuber_short_") as tmpdir:
         tmp = Path(tmpdir)
         bg_path = tmp / "background.jpg"
@@ -565,8 +638,27 @@ def main() -> None:
             output_path=video_path,
         )
 
-        # 6. Upload to YouTube
-        upload_to_youtube(video_path, content)
+        # 5b. Back up the video to the repository before attempting upload
+        repo_video_path = save_video_to_repo(video_path, timestamp)
+
+        # 6. Upload to YouTube (errors are caught so the log is always written)
+        youtube_url: Optional[str] = None
+        upload_error: Optional[str] = None
+        try:
+            video_id = upload_to_youtube(video_path, content)
+            if video_id and video_id != "unknown":
+                youtube_url = f"https://www.youtube.com/shorts/{video_id}"
+            else:
+                upload_error = f"Upload completed but no video ID returned (got: {video_id!r})"
+        except Exception as exc:
+            upload_error = str(exc)
+            print(f"[ERROR] YouTube upload failed: {exc}", file=sys.stderr)
+
+    # Write log entry after temp dir is cleaned up (video is safely in repo)
+    write_log_entry(timestamp, content, repo_video_path, youtube_url, upload_error)
+
+    if upload_error:
+        sys.exit(1)
 
     print("[✓] Done!")
 
