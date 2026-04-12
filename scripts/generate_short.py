@@ -475,6 +475,17 @@ def get_youtube_service():
 
 def upload_to_youtube(video_path: Path, content: dict) -> str:
     print("[Upload] Uploading to YouTube …")
+
+    # Validate credentials up-front — raise a plain exception instead of sys.exit
+    # so the caller can catch it and still write the log / keep the saved video.
+    missing = [v for v in ("YOUTUBE_REFRESH_TOKEN", "YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET")
+               if not os.environ.get(v)]
+    if missing:
+        raise RuntimeError(
+            f"YouTube credential(s) not set: {', '.join(missing)} — "
+            "upload skipped. The video is saved in videos/ for manual upload."
+        )
+
     youtube = get_youtube_service()
 
     title = content["title"]
@@ -761,7 +772,7 @@ def main() -> None:
                 youtube_url = f"https://www.youtube.com/shorts/{video_id}"
             else:
                 upload_error = f"Upload completed but no video ID returned (got: {video_id!r})"
-        except (Exception, SystemExit) as exc:
+        except Exception as exc:
             upload_error = str(exc)
             print(f"[ERROR] YouTube upload failed: {exc}", file=sys.stderr)
 
