@@ -520,6 +520,67 @@ def upload_to_youtube(video_path: Path, content: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Intermediate-result cache (persists between workflow runs via git commit)
+# ---------------------------------------------------------------------------
+
+CACHE_DIR = REPO_ROOT / "cache"
+_CACHE_META    = CACHE_DIR / "meta.json"
+_CACHE_CONTENT = CACHE_DIR / "content.json"
+_CACHE_LIVE2D  = CACHE_DIR / "miku_live2d.mp4"
+_CACHE_AUDIO   = CACHE_DIR / "speech.mp3"
+_CACHE_MUSIC   = CACHE_DIR / "music.mp3"
+
+
+def _read_meta() -> dict:
+    try:
+        return json.loads(_CACHE_META.read_text()) if _CACHE_META.exists() else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _write_meta(meta: dict) -> None:
+    CACHE_DIR.mkdir(exist_ok=True)
+    _CACHE_META.write_text(json.dumps(meta, indent=2))
+
+
+def cache_save_content(content: dict) -> None:
+    CACHE_DIR.mkdir(exist_ok=True)
+    _CACHE_CONTENT.write_text(json.dumps(content, ensure_ascii=False, indent=2))
+    meta = _read_meta()
+    meta["content"] = True
+    _write_meta(meta)
+
+
+def cache_save_file(src: Path, dest: Path, stage: str) -> None:
+    try:
+        CACHE_DIR.mkdir(exist_ok=True)
+        shutil.copy2(src, dest)
+        meta = _read_meta()
+        meta[stage] = True
+        _write_meta(meta)
+    except OSError as exc:
+        print(f"[Cache] Warning: could not cache {stage}: {exc}")
+
+
+def cache_load() -> tuple[dict, dict]:
+    """Return (meta, content). Both are empty dicts if cache is absent or corrupt."""
+    meta = _read_meta()
+    content: dict = {}
+    if meta.get("content") and _CACHE_CONTENT.exists():
+        try:
+            content = json.loads(_CACHE_CONTENT.read_text())
+        except (json.JSONDecodeError, OSError):
+            meta.pop("content", None)
+    return meta, content
+
+
+def cache_clear() -> None:
+    if CACHE_DIR.exists():
+        shutil.rmtree(CACHE_DIR)
+        print("[Cache] Cleared after successful run.")
+
+
+# ---------------------------------------------------------------------------
 # Repository backup & log
 # ---------------------------------------------------------------------------
 
@@ -614,6 +675,10 @@ def main() -> None:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
     repo_video_path: Optional[Path] = None
 
+    cache_meta, cached_content = cache_load()
+    if cache_meta:
+        print("[Cache] Resuming from a previous partial run …")
+
     with tempfile.TemporaryDirectory(prefix="vtuber_original_") as tmpdir:
         tmp         = Path(tmpdir)
         live2d_path = tmp / "miku_live2d.mp4"
@@ -623,19 +688,41 @@ def main() -> None:
         video_path  = tmp / "short.mp4"
 
         # 1. AI: topic, script, SEO metadata
-        content = ai_generate_content()
+        if cached_content:
+            print(f"[1/5] Re-using cached AI content (title: {cached_content.get('title', '?')}) …")
+            content = cached_content
+        else:
+            content = ai_generate_content()
+            cache_save_content(content)
 
         # 2. Render original Live2D Miku model
         # We capture slightly longer than the typical script (~70 s) so the
         # video can always be looped to fit any TTS duration.
-        capture_live2d_video(duration_secs=70, video_path=live2d_path)
+        if cache_meta.get("live2d") and _CACHE_LIVE2D.exists():
+            print("[2/5] Re-using cached Live2D video …")
+            shutil.copy2(_CACHE_LIVE2D, live2d_path)
+        else:
+            capture_live2d_video(duration_secs=70, video_path=live2d_path)
+            cache_save_file(live2d_path, _CACHE_LIVE2D, "live2d")
 
         # 3. TTS
-        generate_tts(content["script"], audio_path)
+        if cache_meta.get("audio") and _CACHE_AUDIO.exists():
+            print("[3/5] Re-using cached TTS audio …")
+            shutil.copy2(_CACHE_AUDIO, audio_path)
+        else:
+            generate_tts(content["script"], audio_path)
+            cache_save_file(audio_path, _CACHE_AUDIO, "audio")
 
         # 4. Background music (optional)
         speech_dur = get_audio_duration(audio_path)
-        music_ok   = generate_music(content["music_prompt"], int(speech_dur), music_path)
+        if cache_meta.get("music") and _CACHE_MUSIC.exists():
+            print("[4/5] Re-using cached background music …")
+            shutil.copy2(_CACHE_MUSIC, music_path)
+            music_ok = True
+        else:
+            music_ok = generate_music(content["music_prompt"], int(speech_dur), music_path)
+            if music_ok:
+                cache_save_file(music_path, _CACHE_MUSIC, "music")
 
         # 5. Video composition
         build_subtitle_file(content["script"], speech_dur, srt_path)
@@ -650,7 +737,7 @@ def main() -> None:
         # 5b. Back up to repository before attempting upload
         repo_video_path = save_video_to_repo(video_path, timestamp, content)
 
-        # 6. Upload to YouTube
+        # 6. Upload to YouTube (errors are caught so the log is always written)
         youtube_url: Optional[str] = None
         upload_error: Optional[str] = None
         try:
@@ -663,11 +750,14 @@ def main() -> None:
             upload_error = str(exc)
             print(f"[ERROR] YouTube upload failed: {exc}", file=sys.stderr)
 
+    # Write log entry after temp dir is cleaned up (video is safely in repo)
     write_log_entry(timestamp, content, repo_video_path, youtube_url, upload_error)
 
     if upload_error:
         sys.exit(1)
 
+    # Clear cache only after a fully successful run
+    cache_clear()
     print("[✓] Done!")
 
 
