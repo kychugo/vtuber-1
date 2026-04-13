@@ -340,7 +340,7 @@ def get_audio_duration(audio_path: Path) -> float:
 
 def build_subtitle_file(script: str, duration: float, srt_path: Path) -> None:
     words = script.split()
-    chunk_size = 4
+    chunk_size = 3
     chunks = [" ".join(words[i: i + chunk_size]) for i in range(0, len(words), chunk_size)]
     n = len(chunks)
     segment = duration / n if n else duration
@@ -386,12 +386,13 @@ def compose_video(
         f"[0:v]"
         f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,"
         f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black,"
-        f"fps={VIDEO_FPS},"
-        f"drawbox=y=ih-150:color=0x000000AA:width=iw:height=150:t=fill,"
+        f"fps=30,"
+        f"minterpolate=fps=60:mi_mode=blend,"
+        f"drawbox=y=ih-80:color=0x000000AA:width=iw:height=80:t=fill,"
         f"subtitles={srt_escaped}:force_style='"
-        f"FontName=Liberation Sans,FontSize=22,Bold=1,"
-        f"PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=3,"
-        f"Shadow=1,Alignment=2,MarginV=30'"
+        f"FontName=Liberation Sans,FontSize=14,Bold=1,"
+        f"PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,"
+        f"Shadow=1,Alignment=2,MarginV=18'"
         f"[outv]"
     )
 
