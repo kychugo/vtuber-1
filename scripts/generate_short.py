@@ -76,7 +76,7 @@ TTS_VOICE = "nova"  # bright, energetic voice
 # Video
 VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 1920
-VIDEO_FPS = 30
+VIDEO_FPS = 60
 AUDIO_BUFFER_SECONDS = 0.5
 
 # YouTube
@@ -445,7 +445,7 @@ def compose_video(
         "-filter_complex", filter_complex,
         "-map", "[outv]",
         *audio_map,
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-c:v", "libx264", "-preset", "slow", "-crf", "18",
         "-c:a", "aac", "-b:a", "192k",
         "-t", str(total_duration),
         "-pix_fmt", "yuv420p",

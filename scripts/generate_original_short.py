@@ -71,11 +71,11 @@ TTS_MODEL_FALLBACK = ["elevenlabs", "openai"]
 TTS_VOICE = "nova"  # bright, energetic voice
 
 # Live2D capture settings
-CAPTURE_FPS     = 30   # frames per second for Puppeteer capture (matches output FPS for smooth motion)
+CAPTURE_FPS     = 60   # frames per second for Puppeteer capture (matches output FPS for smooth motion)
 CAPTURE_PORT    = 8787 # local HTTP server port for serving the repo
 VIDEO_WIDTH     = 1080
 VIDEO_HEIGHT    = 1920
-VIDEO_FPS       = 30   # output video FPS
+VIDEO_FPS       = 60   # output video FPS
 AUDIO_BUFFER_SECONDS = 0.5
 
 # YouTube
@@ -386,8 +386,7 @@ def compose_video(
         f"[0:v]"
         f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,"
         f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black,"
-        f"fps=30,"
-        f"minterpolate=fps=60:mi_mode=blend,"
+        f"fps={VIDEO_FPS},"
         f"drawbox=y=ih-80:color=0x000000AA:width=iw:height=80:t=fill,"
         f"subtitles={srt_escaped}:force_style='"
         f"FontName=Liberation Sans,FontSize=14,Bold=1,"
@@ -424,7 +423,7 @@ def compose_video(
         "-filter_complex", filter_complex,
         "-map", "[outv]",
         *audio_map,
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-c:v", "libx264", "-preset", "slow", "-crf", "18",
         "-c:a", "aac", "-b:a", "192k",
         "-t", str(total_duration),
         "-pix_fmt", "yuv420p",
