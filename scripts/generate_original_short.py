@@ -132,8 +132,38 @@ SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""
       "description": "Multi-paragraph YouTube description with emojis, subscribe CTA, and a trailing hashtag block of at least 15 hashtags. Format:\\n\\n[Hook sentence]\\n\\n[2-3 body sentences]\\n\\n━━━━━━━━━━━━━━━━━━━━━━━━\\n✨ LIKE & SUBSCRIBE for daily VTuber content!\\n🔔 Turn on notifications!\\n💬 Comment below!\\n━━━━━━━━━━━━━━━━━━━━━━━━\\n\\n#Shorts #VTuber #Anime #Miku [add 12+ more relevant hashtags]",
       "tags": ["tag1", "tag2", "add 20 to 30 relevant tags here"],
       "script": "Full spoken script approximately 130 words. Lively and positive.",
-      "music_prompt": "Short prompt for upbeat ambient background music that fits the topic mood."
+      "music_prompt": "Short prompt for upbeat ambient background music that fits the topic mood.",
+      "motion_plan": [
+        {{"motion": "wave_big", "duration": 3.5}},
+        {{"motion": "talk",     "duration": 10.0}},
+        {{"motion": "excited",  "duration": 3.0}},
+        {{"motion": "dance",    "duration": 6.0}},
+        {{"motion": "talk",     "duration": 10.0}},
+        {{"motion": "jump",     "duration": 1.8}},
+        {{"motion": "talk",     "duration": 8.0}},
+        {{"motion": "excited",  "duration": 3.6}},
+        {{"motion": "wave_big", "duration": 3.5}},
+        {{"motion": "idle",     "duration": 3.0}}
+      ]
     }}
+
+    motion_plan rules — replace the example above with a plan that fits YOUR specific script:
+    • Total duration of all entries should sum to approximately 70 seconds.
+    • Available motions and suggested per-entry durations:
+        idle     (2–5 s)   — calm standing, transitions
+        wave     (3–4 s)   — built-in wave motion
+        jump     (1.8 s)   — energetic jump; keep duration at 1.8
+        wave_big (3.5 s)   — big enthusiastic greeting; keep duration at 3.5
+        dance    (4–10 s)  — full-body dancing loop
+        talk     (5–15 s)  — mouth moves with head nods (use whenever Miku is speaking)
+        excited  (2–5 s)   — rapid joyful shaking
+        tap      (2–3 s)   — built-in tap motion
+        flick    (2–5 s)   — built-in flick motion
+    • Start with wave_big to greet viewers.
+    • Use talk for every section where Miku is delivering the spoken script.
+    • Add dance or excited for high-energy moments.
+    • Use jump for surprising/emphasis moments.
+    • End with wave_big or idle.
 """).strip()
 
 
@@ -153,8 +183,35 @@ def _parse_json_response(raw: str) -> dict:
     return json.loads(raw)
 
 
+VALID_MOTIONS = frozenset({
+    "idle", "idle1", "idle2", "idle3",
+    "wave", "tap", "flick",
+    "jump", "wave_big", "dance", "talk", "excited",
+})
+
+
+def _validate_motion_plan(raw) -> Optional[list]:
+    """Return a validated/cleaned motion plan list, or None if invalid."""
+    if not isinstance(raw, list) or not raw:
+        return None
+    clean = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        motion = str(entry.get("motion", "")).lower().replace("-", "_")
+        if motion not in VALID_MOTIONS:
+            motion = "idle"
+        try:
+            duration = float(entry["duration"])
+        except (KeyError, TypeError, ValueError):
+            duration = 3.0
+        duration = max(0.5, min(duration, 30.0))
+        clean.append({"motion": motion, "duration": duration})
+    return clean if clean else None
+
+
 def ai_generate_content() -> dict:
-    print("[1/5] Asking AI to generate content + SEO metadata …")
+    print("[1/5] Asking AI to generate content + SEO metadata + motion plan …")
     client = pollinations_client()
     system_prompt = build_system_prompt()
     last_error: Optional[Exception] = None
@@ -166,7 +223,7 @@ def ai_generate_content() -> dict:
                 model=model,
                 messages=[{"role": "system", "content": system_prompt}],
                 temperature=0.9,
-                max_tokens=900,
+                max_tokens=1200,
             )
             raw = response.choices[0].message.content.strip()
             data = _parse_json_response(raw)
@@ -178,6 +235,15 @@ def ai_generate_content() -> dict:
 
             if len(data["script"]) > 2000:
                 data["script"] = data["script"][:2000]
+
+            # Extract and validate motion_plan (optional — falls back to built-in schedule)
+            motion_plan = _validate_motion_plan(data.get("motion_plan"))
+            data["motion_plan"] = motion_plan
+            if motion_plan:
+                total = sum(e["duration"] for e in motion_plan)
+                print(f"    ✓ Motion plan: {len(motion_plan)} acts, {total:.1f}s total")
+            else:
+                print("    ⚠ No valid motion_plan — built-in schedule will be used")
 
             print(f"    ✓ Model {model} succeeded")
             print(f"    Title : {data['title']}")
@@ -197,11 +263,20 @@ def ai_generate_content() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def capture_live2d_video(duration_secs: float, video_path: Path) -> None:
+def capture_live2d_video(
+    duration_secs: float,
+    video_path: Path,
+    motion_plan: Optional[list] = None,
+) -> None:
     """
     Start a local HTTP server (Python's built-in http.server) rooted at the
     repository, then invoke the Node.js Puppeteer script to capture the
     Live2D Miku model and encode it into an MP4 file.
+
+    motion_plan: list of {"motion": str, "duration": float} entries produced by
+    the AI. Passed as a JSON argument to capture_live2d.js, which injects it
+    into the browser page so live2d_capture.html uses it instead of the
+    built-in ACTS schedule.  If None or empty, the built-in schedule runs.
     """
     print("[2/5] Rendering original Live2D Miku model via Puppeteer …")
 
@@ -223,14 +298,17 @@ def capture_live2d_video(duration_secs: float, video_path: Path) -> None:
     time.sleep(2)  # give server time to bind
 
     try:
-        run([
+        cmd = [
             "node",
             str(capture_script),
             str(CAPTURE_PORT),
             str(video_path),
             str(duration_secs),
             str(CAPTURE_FPS),
-        ])
+        ]
+        if motion_plan:
+            cmd.append(json.dumps(motion_plan))
+        run(cmd)
     finally:
         server.terminate()
         server.wait()
@@ -702,7 +780,11 @@ def main() -> None:
             print("[2/5] Re-using cached Live2D video …")
             shutil.copy2(_CACHE_LIVE2D, live2d_path)
         else:
-            capture_live2d_video(duration_secs=70, video_path=live2d_path)
+            capture_live2d_video(
+                duration_secs=70,
+                video_path=live2d_path,
+                motion_plan=content.get("motion_plan"),
+            )
             cache_save_file(live2d_path, _CACHE_LIVE2D, "live2d")
 
         # 3. TTS

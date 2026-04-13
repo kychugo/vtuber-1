@@ -35,7 +35,6 @@ window.modelError = null;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const _clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const _eio   = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; // ease-in-out
-
 // ── Procedural performance definitions ───────────────────────────────────────
 // Each returns { paramId: value } for a given phase t (in seconds, 0-origin).
 // Designed for the capture virtual clock.
@@ -188,6 +187,42 @@ const ACTS = [
   // List cycles back to index 0 once exhausted (see scheduler below)
 ];
 
+// ── Convert AI motion plan to ACTS format ────────────────────────────────────
+// Maps the string motion names the AI returns to ACTS entries with the correct
+// function references and loop settings.  Returns null if the plan is empty or
+// the input is not a valid array.
+function _buildActsFromPlan(plan) {
+  if (!Array.isArray(plan) || plan.length === 0) return null;
+
+  // Rotate through idle variant indices for visual variety
+  let _idleIdx = 0;
+  const nextIdle = () => (_idleIdx++) % 3;
+
+  const MAP = {
+    idle:     (d) => ({ duration: d, type: 'builtin', group: 'Idle',    index: nextIdle() }),
+    idle1:    (d) => ({ duration: d, type: 'builtin', group: 'Idle',    index: 0 }),
+    idle2:    (d) => ({ duration: d, type: 'builtin', group: 'Idle',    index: 1 }),
+    idle3:    (d) => ({ duration: d, type: 'builtin', group: 'Idle',    index: 2 }),
+    wave:     (d) => ({ duration: d, type: 'builtin', group: 'Wave',    index: 0 }),
+    tap:      (d) => ({ duration: d, type: 'builtin', group: 'Tap',     index: 0 }),
+    flick:    (d) => ({ duration: d, type: 'builtin', group: 'Flick',   index: 0 }),
+    jump:     (d) => ({ duration: Math.min(d, 2.5), type: 'perf', fn: _perfJump,    loop: false }),
+    wave_big: (d) => ({ duration: Math.min(d, 4.5), type: 'perf', fn: _perfWave,    loop: false }),
+    dance:    (d) => ({ duration: d, type: 'perf', fn: _perfDance,   loop: true,  period: 2.0 }),
+    talk:     (d) => ({ duration: d, type: 'perf', fn: _perfTalk,    loop: true,  period: 4.0 }),
+    excited:  (d) => ({ duration: d, type: 'perf', fn: _perfExcited, loop: true,  period: 1.2 }),
+  };
+
+  const acts = [];
+  for (const entry of plan) {
+    const name     = String(entry.motion || 'idle').toLowerCase().replace(/-/g, '_');
+    const duration = Math.max(0.5, parseFloat(entry.duration) || 2.0);
+    const builder  = MAP[name] || MAP.idle;
+    acts.push(builder(duration));
+  }
+  return acts.length > 0 ? acts : null;
+}
+
 async function init() {
   try {
     const canvas = document.getElementById('canvas');
@@ -256,9 +291,22 @@ async function init() {
     app.ticker.update(_vt);
 
     // ── Act scheduler (virtual time, updated inside advanceFrame) ────────────
-    let _actIndex    = 0;     // which ACTS entry is current
+    let _actIndex    = 0;     // which _acts entry is current
     let _actElapsed  = 0;     // seconds into the current act
     let _perfMode    = false; // true = procedural override is active
+
+    // Use AI motion plan if Puppeteer injected window.motionPlan, else built-in ACTS
+    let _acts = ACTS;
+    if (window.motionPlan) {
+      const custom = _buildActsFromPlan(window.motionPlan);
+      if (custom) {
+        _acts = custom;
+        const total = _acts.reduce((s, a) => s + a.duration, 0);
+        console.log(`[capture] AI motion plan active: ${_acts.length} acts, ${total.toFixed(1)}s`);
+      } else {
+        console.warn('[capture] motion plan was invalid — using built-in schedule');
+      }
+    }
 
     function _startAct(act) {
       _actElapsed = 0;
@@ -280,7 +328,7 @@ async function init() {
     }
 
     // Kick off the first act
-    _startAct(ACTS[0]);
+    _startAct(_acts[0]);
 
     // ── Auto-blink overlay (runs in all modes) ───────────────────────────────
     let _blinkTimer = 0, _nextBlink = 3.5;
@@ -295,11 +343,11 @@ async function init() {
 
       // 2. Update act scheduler
       _actElapsed += dtSec;
-      const act = ACTS[_actIndex];
+      const act = _acts[_actIndex];
       if (_actElapsed >= act.duration) {
-        // Move to next act (cycle back to Idle if we've exhausted the list)
-        _actIndex = (_actIndex + 1) < ACTS.length ? _actIndex + 1 : 0;
-        _startAct(ACTS[_actIndex]);
+        // Move to next act (cycle back to the first once the list is exhausted)
+        _actIndex = (_actIndex + 1) < _acts.length ? _actIndex + 1 : 0;
+        _startAct(_acts[_actIndex]);
       }
 
       // 3. Apply procedural parameters for the current act AFTER motion system
