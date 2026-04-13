@@ -32,6 +32,162 @@ const MODEL_PATH = '/miku_sample_t04.model3.json';
 window.modelReady = false;
 window.modelError = null;
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const _clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const _eio   = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; // ease-in-out
+
+// ── Procedural performance definitions ───────────────────────────────────────
+// Each returns { paramId: value } for a given phase t (in seconds, 0-origin).
+// Designed for the capture virtual clock.
+
+function _perfJump(t) {
+  const arc = Math.sin(Math.PI * _clamp(t / 1.8, 0, 1));
+  const ea  = _eio(arc);
+  return {
+    ParamBodyAngleY:  -8  * arc,
+    ParamBodyAngleZ:   4  * Math.sin(Math.PI * 2 * (t / 1.8)),
+    ParamAngleX:      -12 * arc,
+    ParamAngleZ:       6  * Math.sin(Math.PI * 2.5 * (t / 1.8)),
+    ParamArmL:         0.6 * arc,
+    ParamArmR:         0.6 * arc,
+    ParamMouthOpenY:   0.9 * ea,
+    ParamMouthForm:    0.4,
+    ParamEyeLOpen:     _clamp(1 - 0.5 * arc, 0, 1),
+    ParamEyeROpen:     _clamp(1 - 0.5 * arc, 0, 1),
+    ParamEyeLSmile:    0.6 * ea,
+    ParamEyeRSmile:    0.6 * ea,
+    ParamBrowLY:       1.0 * ea,
+    ParamBrowRY:       1.0 * ea,
+    ParamCheek:        0.7 * ea,
+  };
+}
+
+function _perfWave(t) {
+  const RAISE = 0.35, WAVE_END = 3.15, LOWER = 3.5;
+  const armH = t < RAISE    ? _eio(t / RAISE)
+             : t < WAVE_END ? 1
+             : _eio(1 - (t - WAVE_END) / (LOWER - WAVE_END));
+  const waveOsc = (t > RAISE && t < WAVE_END)
+    ? 0.4 * Math.sin(2 * Math.PI * 3.5 * (t - RAISE))
+    : 0;
+  return {
+    ParamArmR:       _clamp(armH * (0.6 + waveOsc), 0, 1),
+    ParamArmL:       -0.15 * armH,
+    ParamBodyAngleX:  6   * armH,
+    ParamBodyAngleZ: -4   * armH,
+    ParamAngleY:      5   * armH,
+    ParamAngleZ:      6   * armH,
+    ParamEyeLSmile:   0.9 * armH,
+    ParamEyeRSmile:   0.9 * armH,
+    ParamEyeLOpen:    0.5 + 0.5 * (1 - armH),
+    ParamEyeROpen:    0.5 + 0.5 * (1 - armH),
+    ParamMouthOpenY:  0.5 * armH,
+    ParamMouthForm:   1.0 * armH,
+    ParamCheek:       0.9 * armH,
+    ParamBrowLY:      0.6 * armH,
+    ParamBrowRY:      0.6 * armH,
+  };
+}
+
+function _perfDance(t) {
+  const phi  = (t / 2.0) * 2 * Math.PI;
+  const phi2 = phi * 2;
+  const bodyX = 9 * Math.sin(phi);
+  return {
+    ParamBodyAngleX:   bodyX,
+    ParamBodyAngleY:  -3 * Math.abs(Math.sin(phi)),
+    ParamBodyAngleZ:  -bodyX * 0.5,
+    ParamArmL:         0.5 * Math.sin(phi + Math.PI),
+    ParamArmR:         0.5 * Math.sin(phi),
+    ParamAngleX:       12  * Math.sin(phi - 0.3),
+    ParamAngleZ:        8  * Math.sin(phi - 0.3),
+    ParamEyeLSmile:    0.8,
+    ParamEyeRSmile:    0.8,
+    ParamEyeLOpen:     0.55,
+    ParamEyeROpen:     0.55,
+    ParamMouthOpenY:   _clamp(0.5 * Math.sin(phi2), 0, 1),
+    ParamMouthForm:    0.8,
+    ParamCheek:        0.6,
+    ParamBrowLY:       0.3 * Math.sin(phi + 0.4),
+    ParamBrowRY:       0.3 * Math.sin(phi + 0.4),
+    ParamBreath:       0.5 + 0.5 * Math.sin(phi),
+  };
+}
+
+function _perfTalk(t) {
+  const phoneme = Math.sin(2 * Math.PI * 4   * t);
+  const pause   = 0.5 + 0.5 * Math.sin(2 * Math.PI * 0.5 * t);
+  const mouth   = _clamp(phoneme * pause, 0, 1) * 0.85;
+  return {
+    ParamMouthOpenY:  mouth,
+    ParamMouthForm:   0.3 + 0.4 * Math.sin(2 * Math.PI * 0.7 * t),
+    ParamAngleX:       4  * Math.sin(2 * Math.PI * 1.2 * t),
+    ParamAngleY:       6  * Math.sin(2 * Math.PI * 0.3 * t),
+    ParamAngleZ:       3  * Math.sin(2 * Math.PI * 0.4 * t),
+    ParamEyeLOpen:     0.85 + 0.15 * Math.sin(2 * Math.PI * 0.6 * t),
+    ParamEyeROpen:     0.85 + 0.15 * Math.sin(2 * Math.PI * 0.6 * t),
+    ParamBrowLY:       0.3 * Math.sin(2 * Math.PI * 0.5 * t),
+    ParamBrowRY:       0.3 * Math.sin(2 * Math.PI * 0.5 * t),
+    ParamBrowLAngle:   0.2 * Math.sin(2 * Math.PI * 0.8 * t),
+    ParamBrowRAngle:  -0.2 * Math.sin(2 * Math.PI * 0.8 * t),
+    ParamBodyAngleX:   2  * Math.sin(2 * Math.PI * 0.5 * t),
+    ParamBodyAngleZ:   2  * Math.sin(2 * Math.PI * 0.5 * t),
+    ParamBreath:       0.5 + 0.5 * Math.sin(2 * Math.PI * 0.25 * t),
+  };
+}
+
+function _perfExcited(t) {
+  const fast = 2 * Math.PI * (t / 1.2) * 3;
+  const slow = 2 * Math.PI * (t / 1.2);
+  return {
+    ParamBodyAngleX:   8  * Math.sin(fast),
+    ParamBodyAngleY:  -4  * Math.abs(Math.sin(fast)),
+    ParamBodyAngleZ:  -5  * Math.sin(fast),
+    ParamAngleX:       12 * Math.sin(fast - 0.25),
+    ParamAngleZ:        8 * Math.sin(fast - 0.25),
+    ParamArmL:          0.55 * Math.sin(fast + Math.PI),
+    ParamArmR:          0.55 * Math.sin(fast),
+    ParamMouthOpenY:    0.6 + 0.4 * Math.abs(Math.sin(fast)),
+    ParamMouthForm:     1.0,
+    ParamEyeLSmile:     0.9,
+    ParamEyeRSmile:     0.9,
+    ParamEyeLOpen:      0.45 + 0.35 * Math.abs(Math.sin(slow)),
+    ParamEyeROpen:      0.45 + 0.35 * Math.abs(Math.sin(slow)),
+    ParamBrowLY:        0.8,
+    ParamBrowRY:        0.8,
+    ParamCheek:         1.0,
+    ParamBreath:        Math.abs(Math.sin(fast)),
+  };
+}
+
+// ── Motion act schedule (total ≈ 70 s) ───────────────────────────────────────
+// Each act runs for `duration` seconds, then the next begins automatically.
+// 'builtin' acts play a .motion3.json group; 'perf' acts use the procedural
+// functions above with virtual-clock time tracking.
+const ACTS = [
+  { duration: 4.5,  type: 'builtin', group: 'Idle',    index: 0 },
+  { duration: 3.5,  type: 'builtin', group: 'Wave',    index: 0 },
+  { duration: 1.5,  type: 'builtin', group: 'Idle',    index: 1 },
+  { duration: 1.8,  type: 'perf',   fn: _perfJump,    loop: false },
+  { duration: 2.0,  type: 'builtin', group: 'Idle',    index: 2 },
+  { duration: 8.0,  type: 'perf',   fn: _perfDance,   loop: true,  period: 2.0 },
+  { duration: 3.5,  type: 'perf',   fn: _perfWave,    loop: false },
+  { duration: 6.0,  type: 'perf',   fn: _perfTalk,    loop: true,  period: 4.0 },
+  { duration: 2.4,  type: 'builtin', group: 'Idle',    index: 0 },
+  { duration: 3.6,  type: 'perf',   fn: _perfExcited, loop: true,  period: 1.2 },
+  { duration: 2.8,  type: 'builtin', group: 'Flick',   index: 1 },  // miku_08 = 5.4s, crop
+  { duration: 2.1,  type: 'builtin', group: 'FlickUp', index: 0 },
+  { duration: 2.0,  type: 'builtin', group: 'Idle',    index: 1 },
+  { duration: 8.0,  type: 'perf',   fn: _perfDance,   loop: true,  period: 2.0 },
+  { duration: 1.8,  type: 'perf',   fn: _perfJump,    loop: false },
+  { duration: 3.5,  type: 'perf',   fn: _perfWave,    loop: false },
+  { duration: 6.0,  type: 'perf',   fn: _perfTalk,    loop: true,  period: 4.0 },
+  { duration: 3.6,  type: 'perf',   fn: _perfExcited, loop: true,  period: 1.2 },
+  { duration: 3.5,  type: 'builtin', group: 'Wave',    index: 0 },
+  { duration: 2.0,  type: 'builtin', group: 'Idle',    index: 2 },
+  // Remaining ~3 s covered by Idle loop in cycler
+];
+
 async function init() {
   try {
     const canvas = document.getElementById('canvas');
@@ -40,49 +196,37 @@ async function init() {
       view: canvas,
       width: 1080,
       height: 1920,
-      // Gradient background (anime teal-to-purple), rendered as a solid colour here;
-      // real gradient is drawn via a Graphics object below.
       transparent: true,
       antialias: true,
       resolution: 1,
       autoDensity: false,
     });
 
-    // ── Gradient background drawn with Graphics ──────────────────────────────
-    const bg = new PIXI.Graphics();
-    // Top colour  #1a0533 (dark purple)
-    // Bottom colour #00c8a0 (teal)
-    // Approximate with rectangles of varying alpha / layered fills
+    // ── Gradient background ──────────────────────────────────────────────────
     const gradient = app.renderer.generateTexture(
       (() => {
-        const g = new PIXI.Graphics();
-        // Use a canvas-based texture for a real gradient
         const cvs = document.createElement('canvas');
-        cvs.width = 1080;
-        cvs.height = 1920;
-        const ctx = cvs.getContext('2d');
+        cvs.width = 1080; cvs.height = 1920;
+        const ctx  = cvs.getContext('2d');
         const grad = ctx.createLinearGradient(0, 0, 0, 1920);
-        grad.addColorStop(0, '#1a0533');
+        grad.addColorStop(0,   '#1a0533');
         grad.addColorStop(0.5, '#2d1b69');
-        grad.addColorStop(1, '#00c8a0');
+        grad.addColorStop(1,   '#00c8a0');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, 1080, 1920);
         return new PIXI.Sprite(PIXI.Texture.from(cvs));
       })()
     );
     const bgSprite = new PIXI.Sprite(gradient);
-    bgSprite.width = 1080;
-    bgSprite.height = 1920;
+    bgSprite.width = 1080; bgSprite.height = 1920;
     app.stage.addChild(bgSprite);
 
     // ── Load and position Live2D model ───────────────────────────────────────
     const model = await PIXI.live2d.Live2DModel.from(MODEL_PATH, {
-      autoInteract: false,  // no mouse interaction during capture
+      autoInteract: false,
     });
-
     app.stage.addChild(model);
 
-    // Fill 90 % of the frame height, centred horizontally, anchored at centre
     const scale = Math.min(
       1080 / model.internalModel.originalWidth,
       1920 / model.internalModel.originalHeight
@@ -92,59 +236,100 @@ async function init() {
     model.y = 1920 / 2;
     model.anchor.set(0.5, 0.5);
 
-    // Start idle animation loop
-    model.motion('Idle');
-
-    // ── Fixed time-step animation control ───────────────────────────────────
-    // The root cause of shaky-looking output is that Puppeteer screenshots
-    // take variable amounts of time (50-100ms in headless Chromium), yet the
-    // old code waited a *further* FRAME_MS after each screenshot.  This means
-    // consecutive frames sampled from the Live2D animation were NOT equally
-    // spaced in animation time, so motion appeared jerky when FFmpeg played
-    // them back at a constant frame rate.
-    //
-    // Fix: stop PIXI's real-time RAF-driven tickers and advance the animation
-    // by exactly one frame period via a controlled virtual clock before every
-    // screenshot.  This guarantees uniform frame spacing regardless of how
-    // long the screenshot round-trip takes.
-
+    // ── Fixed time-step animation control ────────────────────────────────────
     const sharedTicker = PIXI.Ticker.shared;
-
-    // Halt the automatic render loops.
     sharedTicker.stop();
     app.ticker.stop();
-
-    // Re-enable manual update() calls.  PIXI checks this flag before firing
-    // listeners; we need it true even though the RAF loop is cancelled.
-    // NOTE: _started is an internal property of PIXI.Ticker (pixi.js@6).
-    // There is no public API to allow manual update() calls after stop(), so
-    // this is a deliberate, version-pinned internal access.  If upgrading
-    // pixi.js beyond v6, verify that Ticker.update() still respects _started.
     sharedTicker._started = true;
-    app.ticker._started    = true;
+    app.ticker._started   = true;
 
-    // Virtual clock — starts from now so the first delta is well-defined.
     let _vt = performance.now();
 
-    // Physics warm-up: advance this many frames before recording so that
-    // hair, clothes, and other physics constraints settle into natural positions.
-    const WARM_UP_FRAMES = 90; // 1.5 s of animation time at 60 fps
-    const WARM_FPS = 60;
-    const WARM_FRAME_MS = 1000 / WARM_FPS;
+    // Physics warm-up: 90 frames @ 60fps so physics constraints settle.
+    model.motion('Idle');
+    const WARM_UP_FRAMES = 90;
+    const WARM_FRAME_MS  = 1000 / 60;
     for (let i = 0; i < WARM_UP_FRAMES; i++) {
       _vt += WARM_FRAME_MS;
       sharedTicker.update(_vt);
     }
-    // Render the settled state once.
     app.ticker.update(_vt);
 
-    // Expose a frame stepper for Puppeteer to call before each screenshot.
-    // Advancing both tickers with the same virtual time ensures the Live2D
-    // model (driven by sharedTicker) and the PIXI renderer (driven by
-    // app.ticker) always stay in sync.
+    // ── Act scheduler (virtual time, updated inside advanceFrame) ────────────
+    let _actIndex    = 0;     // which ACTS entry is current
+    let _actElapsed  = 0;     // seconds into the current act
+    let _perfMode    = false; // true = procedural override is active
+
+    function _startAct(act) {
+      _actElapsed = 0;
+      _perfMode   = act.type === 'perf';
+      if (act.type === 'builtin') {
+        model.motion(act.group, act.index);
+      }
+      // For 'perf' acts, parameters are applied inside _applyActParams().
+    }
+
+    function _applyActParams(act, t) {
+      // t = seconds since this act started (already loop-wrapped if needed)
+      if (!_perfMode) return;
+      const params = act.fn(t);
+      const core   = model.internalModel.coreModel;
+      for (const [id, val] of Object.entries(params)) {
+        try { core.setParameterValueById(id, val); } catch (_) {}
+      }
+    }
+
+    // Kick off the first act
+    _startAct(ACTS[0]);
+
+    // ── Auto-blink overlay (runs in all modes) ───────────────────────────────
+    let _blinkTimer = 0, _nextBlink = 3.5;
+    let _enhTime    = 0;
+
+    // ── advanceFrame (called by Puppeteer each frame) ────────────────────────
     window.advanceFrame = function (ms) {
+      const dtSec = ms / 1000;
+
+      // 1. Advance Live2D model via shared ticker
       _vt += ms;
       sharedTicker.update(_vt);
+
+      // 2. Update act scheduler
+      _actElapsed += dtSec;
+      const act = ACTS[_actIndex];
+      if (_actElapsed >= act.duration) {
+        // Move to next act (cycle back to Idle if we've exhausted the list)
+        _actIndex = (_actIndex + 1) < ACTS.length ? _actIndex + 1 : 0;
+        _startAct(ACTS[_actIndex]);
+      }
+
+      // 3. Apply procedural parameters for the current act AFTER motion system
+      if (_perfMode) {
+        const t = act.loop
+          ? _actElapsed % (act.period || act.duration)
+          : Math.min(_actElapsed, act.duration);
+        _applyActParams(act, t);
+      }
+
+      // 4. Auto-blink overlay (skip when procedural anim controls eyes)
+      _enhTime    += dtSec;
+      _blinkTimer += dtSec;
+      if (_blinkTimer >= _nextBlink) {
+        const phase = _blinkTimer - _nextBlink;
+        const half  = 0.08;
+        if (phase < half * 2) {
+          const openness = phase < half ? 1 - phase / half : (phase - half) / half;
+          const clamped  = _clamp(openness, 0, 1);
+          const core     = model.internalModel.coreModel;
+          try { core.setParameterValueById('ParamEyeLOpen', clamped); } catch (_) {}
+          try { core.setParameterValueById('ParamEyeROpen', clamped); } catch (_) {}
+        } else {
+          _blinkTimer = 0;
+          _nextBlink  = 3 + Math.random() * 3;
+        }
+      }
+
+      // 5. Render
       app.ticker.update(_vt);
     };
 

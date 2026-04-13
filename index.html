@@ -6,7 +6,9 @@
   <title>Miku VTuber Controller</title>
 
   <!-- Load Cubism 4 Core first (required by pixi-live2d-display) -->
-  <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+  <!-- Primary CDN: Live2D official. Fallback: jsDelivr mirror. -->
+  <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"
+          onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2dcubismcore.min.js';document.head.appendChild(s);})()"></script>
   <!-- PIXI.js v6 -->
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@6/dist/browser/pixi.min.js"></script>
   <!-- pixi-live2d-display: cubism4-only build (no Cubism 2 runtime needed) -->
@@ -250,11 +252,41 @@
         <button class="motion-big" onclick="playMotion('Flick',0)">💨 Flick 1</button>
         <button class="motion-big" onclick="playMotion('Flick',1)">💨 Flick 2</button>
         <button class="motion-big" onclick="playMotion('FlickUp',0)">⬆ Flick Up</button>
-        <button class="motion-big" onclick="playWaveHello()">👋 Wave Hello</button>
+        <button class="motion-big" onclick="playMotion('Wave',0)">👋 Built-in Wave</button>
       </div>
       <div class="btn-row">
-        <button style="width:100%" onclick="stopMotion()">⏹ Stop Motion</button>
+        <button style="width:100%" onclick="stopAll()">⏹ Stop All</button>
       </div>
+    </div>
+
+    <!-- Easy: Performances (large procedural motions) -->
+    <div class="section easy-only">
+      <div class="section-title">🎭 Performances</div>
+      <div class="motion-grid">
+        <button class="motion-big" onclick="performJump()">🦘 Jump!</button>
+        <button class="motion-big" onclick="performWaveBig()">👋 Wave Hello</button>
+        <button class="motion-big" id="btn-dance" onclick="toggleDance()">💃 Dance</button>
+        <button class="motion-big" id="btn-talk" onclick="toggleTalk()">💬 Talking</button>
+        <button class="motion-big" id="btn-excited" onclick="toggleExcited()">🌟 Excited!</button>
+        <button class="motion-big" onclick="stopPerformance()">⏹ Stop Perf</button>
+      </div>
+    </div>
+
+    <!-- Easy: AI Control -->
+    <div class="section easy-only">
+      <div class="section-title">🤖 AI Control</div>
+      <div class="toggle-row">
+        <label>Auto-Cycle Motions</label>
+        <input type="checkbox" id="chk-ai-auto" onchange="toggleAiAuto(this.checked)" />
+      </div>
+      <div style="display:flex;gap:5px;margin-bottom:6px">
+        <input type="text" id="ai-text"
+               placeholder="Type: jump, dance, wave, talk…"
+               style="flex:1;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:5px 8px;font-size:12px"
+               onkeydown="if(event.key==='Enter')sendAiText()" />
+        <button onclick="sendAiText()" style="white-space:nowrap">▶ Go</button>
+      </div>
+      <div id="ai-reply" style="font-size:11px;color:#58a6ff;min-height:16px;word-wrap:break-word"></div>
     </div>
 
     <!-- Easy: Basic Settings -->
@@ -319,10 +351,39 @@
         <button onclick="playMotion('Flick',0)">Flick 1</button>
         <button onclick="playMotion('Flick',1)">Flick 2</button>
         <button onclick="playMotion('FlickUp',0)">Flick Up</button>
-        <button onclick="playWaveHello()">👋 Wave Hello</button>
+        <button onclick="playMotion('Wave',0)">Wave</button>
       </div>
       <div class="btn-row">
-        <button onclick="stopMotion()">⏹ Stop</button>
+        <button onclick="stopAll()">⏹ Stop All</button>
+      </div>
+    </div>
+
+    <!-- Pro: Performances -->
+    <div class="section pro-only">
+      <div class="section-title">Performances</div>
+      <div class="btn-row">
+        <button onclick="performJump()">🦘 Jump</button>
+        <button onclick="performWaveBig()">👋 Wave Hello</button>
+        <button id="btn-dance-pro" onclick="toggleDance()">💃 Dance</button>
+        <button id="btn-talk-pro" onclick="toggleTalk()">💬 Talk</button>
+        <button id="btn-excited-pro" onclick="toggleExcited()">🌟 Excited</button>
+        <button onclick="stopPerformance()">⏹ Stop Perf</button>
+      </div>
+    </div>
+
+    <!-- Pro: AI Control -->
+    <div class="section pro-only">
+      <div class="section-title">AI Control</div>
+      <div class="toggle-row">
+        <label>Auto-Cycle Motions</label>
+        <input type="checkbox" id="chk-ai-auto-pro" onchange="toggleAiAuto(this.checked)" />
+      </div>
+      <div style="display:flex;gap:5px;margin-bottom:6px">
+        <input type="text" id="ai-text-pro"
+               placeholder="Type action…"
+               style="flex:1;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:5px 8px;font-size:12px"
+               onkeydown="if(event.key==='Enter')sendAiText('pro')" />
+        <button onclick="sendAiText('pro')">▶</button>
       </div>
     </div>
 
@@ -539,6 +600,16 @@ function syncSliders() {
 
 // ── Main init ───────────────────────────────────────────────────────────────
 async function init() {
+  // Verify CDN libraries loaded before trying to use them
+  if (typeof PIXI === 'undefined') {
+    setStatus('❌ PIXI.js failed to load — check your internet connection.');
+    return;
+  }
+  if (!PIXI.live2d) {
+    setStatus('❌ pixi-live2d-display failed to load — check your internet connection.');
+    return;
+  }
+
   const wrap = document.getElementById('canvas-wrap');
   const canvas = document.getElementById('canvas');
 
@@ -609,21 +680,415 @@ function setStatus(msg, hideAfter) {
 // ── Control API (called from HTML) ──────────────────────────────────────────
 function playMotion(group, index) {
   if (!model) return;
+  stopPerformance();
   model.motion(group, index);
   setStatus(`▶ ${group} ${index + 1}`, 1500);
-}
-
-function playWaveHello() {
-  if (!model) return;
-  model.motion('Wave', 0);
-  setStatus('👋 Wave Hello!', 2000);
 }
 
 function stopMotion() {
   if (!model) return;
   model.internalModel.motionManager.stopAllMotions();
+}
+
+function stopAll() {
+  stopPerformance();
+  stopMotion();
   setStatus('⏹ Stopped', 1200);
 }
+
+// ── Procedural Performance Engine ───────────────────────────────────────────
+// Each performance is a config object:
+//   { name, duration (s), loop (bool), update(t) → { paramId: value, … } }
+//
+// Performances run via the PIXI app ticker so they execute AFTER the Live2D
+// motion system has updated parameters each frame, allowing them to fully
+// override whatever the built-in motions would have set.
+
+let _perfTickerFn = null;   // currently running ticker callback
+let _perfStart    = 0;
+let _perfConfig   = null;
+let _perfActive   = '';     // '' | 'dance' | 'talk' | 'excited'  (for toggle buttons)
+
+function startPerformance(cfg) {
+  if (!model) return;
+  _stopPerfTicker();
+  stopMotion();
+  manualMode = true;
+  _perfConfig = cfg;
+  _perfStart  = performance.now();
+  _perfActive = cfg.key || '';
+  _syncPerfButtons();
+
+  _perfTickerFn = () => {
+    const elapsed = (performance.now() - _perfStart) / 1000;
+    const t = cfg.loop
+      ? elapsed % cfg.duration
+      : Math.min(elapsed, cfg.duration);
+
+    const params = cfg.update(t);
+    const core = model.internalModel.coreModel;
+    for (const [id, val] of Object.entries(params)) {
+      try { core.setParameterValueById(id, val); } catch (_) {}
+    }
+
+    if (!cfg.loop && elapsed > cfg.duration + 0.05) {
+      stopPerformance();
+    }
+  };
+
+  app.ticker.add(_perfTickerFn);
+  setStatus(cfg.name, cfg.loop ? 0 : (cfg.duration * 1000 + 600));
+}
+
+function _stopPerfTicker() {
+  if (_perfTickerFn && app) {
+    app.ticker.remove(_perfTickerFn);
+    _perfTickerFn = null;
+  }
+}
+
+function stopPerformance() {
+  _stopPerfTicker();
+  _perfActive = '';
+  _syncPerfButtons();
+  manualMode = false;
+  if (model) model.motion('Idle');
+}
+
+function _syncPerfButtons() {
+  const pairs = [
+    ['btn-dance',       'btn-dance-pro',   'dance'],
+    ['btn-talk',        'btn-talk-pro',    'talk'],
+    ['btn-excited',     'btn-excited-pro', 'excited'],
+  ];
+  for (const [easy, pro, key] of pairs) {
+    const active = _perfActive === key;
+    [easy, pro].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('active', active);
+    });
+  }
+}
+
+// ── Easing helpers ──────────────────────────────────────────────────────────
+const easeInOut = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+const clamp     = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp      = (a, b, t)   => a + (b - a) * t;
+
+// ── Performance: Jump ────────────────────────────────────────────────────────
+// A single energetic arc: body bounces up, head tilts back, arms flare out,
+// mouth opens wide with excitement, eyebrows shoot up.
+function performJump() {
+  startPerformance({
+    name: '🦘 Jump!',
+    key:  'jump',
+    duration: 1.8,
+    loop: false,
+    update(t) {
+      const p   = t / 1.8;                             // 0 → 1
+      const arc = Math.sin(Math.PI * p);               // 0→1→0 arc
+      const ea  = easeInOut(arc);
+      // Squash at start/end, stretch at peak
+      const squash = 1 - 0.4 * arc;   // body angle Y simulates up/down
+      return {
+        ParamBodyAngleY:  -8  * arc,
+        ParamBodyAngleX:   0,
+        ParamBodyAngleZ:   4  * Math.sin(Math.PI * 2 * p), // slight side twist
+        ParamAngleX:      -12 * arc,   // head tilts back on the way up
+        ParamAngleY:       0,
+        ParamAngleZ:       6  * Math.sin(Math.PI * 2.5 * p),
+        ParamArmL:         0.6 * arc,  // arms flare out
+        ParamArmR:         0.6 * arc,
+        ParamMouthOpenY:   0.9 * ea,
+        ParamMouthForm:    0.4,
+        ParamEyeLOpen:     clamp(1 - 0.5 * arc, 0, 1),
+        ParamEyeROpen:     clamp(1 - 0.5 * arc, 0, 1),
+        ParamEyeLSmile:    0.6 * ea,
+        ParamEyeRSmile:    0.6 * ea,
+        ParamBrowLY:       1.0 * ea,
+        ParamBrowRY:       1.0 * ea,
+        ParamBreath:       arc,
+        ParamCheek:        0.7 * ea,
+      };
+    },
+  });
+}
+
+// ── Performance: Wave Hello ──────────────────────────────────────────────────
+// Arm rises up, then oscillates in a rapid enthusiastic wave for 2.5 s,
+// then slowly lowers. Body leans, big smile throughout.
+function performWaveBig() {
+  const RAISE   = 0.35;  // seconds to raise arm
+  const WAVE_END = 3.15; // seconds wave ends
+  const LOWER   = 3.5;   // total duration
+
+  startPerformance({
+    name: '👋 Wave Hello!',
+    key:  'wave',
+    duration: LOWER,
+    loop: false,
+    update(t) {
+      // Arm height envelope: 0→1 (raise), 1 (held), 1→0 (lower)
+      const armH = t < RAISE
+        ? easeInOut(t / RAISE)
+        : t < WAVE_END
+          ? 1
+          : easeInOut(1 - (t - WAVE_END) / (LOWER - WAVE_END));
+
+      // Waving oscillation only while raised (3.5 waves/s)
+      const waving = t > RAISE && t < WAVE_END;
+      const waveOsc = waving ? 0.4 * Math.sin(2 * Math.PI * 3.5 * (t - RAISE)) : 0;
+      const armR = armH * (0.6 + waveOsc);
+
+      return {
+        ParamArmR:         clamp(armR, 0, 1),
+        ParamArmL:        -0.15 * armH,          // other arm relaxes slightly
+        ParamBodyAngleX:   6    * armH,           // lean toward raised arm
+        ParamBodyAngleY:   0,
+        ParamBodyAngleZ:  -4    * armH,
+        ParamAngleX:       0,
+        ParamAngleY:       5    * armH,           // face turns a little
+        ParamAngleZ:       6    * armH,
+        ParamEyeLSmile:    0.9  * armH,
+        ParamEyeRSmile:    0.9  * armH,
+        ParamEyeLOpen:     0.5  + 0.5 * (1 - armH),
+        ParamEyeROpen:     0.5  + 0.5 * (1 - armH),
+        ParamMouthOpenY:   0.5  * armH,
+        ParamMouthForm:    1.0  * armH,
+        ParamCheek:        0.9  * armH,
+        ParamBrowLY:       0.6  * armH,
+        ParamBrowRY:       0.6  * armH,
+      };
+    },
+  });
+}
+
+// ── Performance: Dance (looping) ─────────────────────────────────────────────
+// Full-body 2 s looping dance: body sways left-right with a bounce,
+// arms alternate, head follows with a lag, mouth pulses to the beat.
+function _buildDanceCfg() {
+  return {
+    name: '💃 Dancing!',
+    key:  'dance',
+    duration: 2.0,
+    loop: true,
+    update(t) {
+      const phi  = (t / 2.0) * 2 * Math.PI;   // 1 cycle per 2 s
+      const phi2 = phi * 2;                    // double-speed for beat accents
+
+      const bodyX  =  9 * Math.sin(phi);
+      const bodyBob = 3 * Math.abs(Math.sin(phi));   // bounces twice per cycle
+
+      return {
+        ParamBodyAngleX:   bodyX,
+        ParamBodyAngleY:  -bodyBob,
+        ParamBodyAngleZ:  -bodyX * 0.5,
+        ParamArmL:         0.5 * Math.sin(phi + Math.PI),   // arms alternate
+        ParamArmR:         0.5 * Math.sin(phi),
+        ParamAngleX:       12 * Math.sin(phi - 0.3),         // head follows with lag
+        ParamAngleZ:        8 * Math.sin(phi - 0.3),
+        ParamAngleY:        0,
+        ParamEyeLSmile:     0.8,
+        ParamEyeRSmile:     0.8,
+        ParamEyeLOpen:      0.55,
+        ParamEyeROpen:      0.55,
+        ParamMouthOpenY:    clamp(0.5 * Math.sin(phi2), 0, 1),  // mouth pulses on beat
+        ParamMouthForm:     0.8,
+        ParamCheek:         0.6,
+        ParamBrowLY:        0.3 * Math.sin(phi + 0.4),
+        ParamBrowRY:        0.3 * Math.sin(phi + 0.4),
+        ParamBreath:        0.5 + 0.5 * Math.sin(phi),
+      };
+    },
+  };
+}
+
+function toggleDance() {
+  if (_perfActive === 'dance') { stopPerformance(); return; }
+  startPerformance(_buildDanceCfg());
+}
+
+// ── Performance: Talk (looping) ──────────────────────────────────────────────
+// Natural speech pattern: fast mouth open/close with pauses, head nods,
+// occasional side tilts, eyebrows animate to convey emotion.
+function _buildTalkCfg() {
+  return {
+    name: '💬 Talking…',
+    key:  'talk',
+    duration: 4.0,
+    loop: true,
+    update(t) {
+      // Speech: fast phoneme bursts (4 Hz) gated by slow pause rhythm (0.5 Hz)
+      const phoneme = Math.sin(2 * Math.PI * 4   * t);
+      const pause   = 0.5 + 0.5 * Math.sin(2 * Math.PI * 0.5 * t);
+      const mouth   = clamp(phoneme * pause, 0, 1) * 0.85;
+
+      return {
+        ParamMouthOpenY:   mouth,
+        ParamMouthForm:    0.3 + 0.4 * Math.sin(2 * Math.PI * 0.7 * t),
+        ParamAngleX:        4 * Math.sin(2 * Math.PI * 1.2 * t),   // head nod
+        ParamAngleY:        6 * Math.sin(2 * Math.PI * 0.3 * t),   // side tilt
+        ParamAngleZ:        3 * Math.sin(2 * Math.PI * 0.4 * t),
+        ParamEyeLOpen:      0.85 + 0.15 * Math.sin(2 * Math.PI * 0.6 * t),
+        ParamEyeROpen:      0.85 + 0.15 * Math.sin(2 * Math.PI * 0.6 * t),
+        ParamBrowLY:        0.3 * Math.sin(2 * Math.PI * 0.5 * t),
+        ParamBrowRY:        0.3 * Math.sin(2 * Math.PI * 0.5 * t),
+        ParamBrowLAngle:    0.2 * Math.sin(2 * Math.PI * 0.8 * t),
+        ParamBrowRAngle:   -0.2 * Math.sin(2 * Math.PI * 0.8 * t),
+        ParamBodyAngleX:    2 * Math.sin(2 * Math.PI * 0.5 * t),
+        ParamBodyAngleZ:    2 * Math.sin(2 * Math.PI * 0.5 * t),
+        ParamBreath:        0.5 + 0.5 * Math.sin(2 * Math.PI * 0.25 * t),
+      };
+    },
+  };
+}
+
+function toggleTalk() {
+  if (_perfActive === 'talk') { stopPerformance(); return; }
+  startPerformance(_buildTalkCfg());
+}
+
+// ── Performance: Excited (looping) ───────────────────────────────────────────
+// Joyful, bouncy high-energy loop: rapid body shake, arms up, huge smile,
+// mouth wide open. Think "I just won the lottery!".
+function _buildExcitedCfg() {
+  return {
+    name: '🌟 Excited!',
+    key:  'excited',
+    duration: 1.2,
+    loop: true,
+    update(t) {
+      const fast = 2 * Math.PI * (t / 1.2) * 3; // 3 oscillations per cycle
+      const slow = 2 * Math.PI * (t / 1.2);
+
+      return {
+        ParamBodyAngleX:   8  * Math.sin(fast),
+        ParamBodyAngleY:  -4  * Math.abs(Math.sin(fast)),
+        ParamBodyAngleZ:  -5  * Math.sin(fast),
+        ParamAngleX:       12 * Math.sin(fast - 0.25),
+        ParamAngleZ:        8 * Math.sin(fast - 0.25),
+        ParamAngleY:        0,
+        ParamArmL:          0.55 * Math.sin(fast + Math.PI),
+        ParamArmR:          0.55 * Math.sin(fast),
+        ParamMouthOpenY:    0.6 + 0.4 * Math.abs(Math.sin(fast)),
+        ParamMouthForm:     1.0,
+        ParamEyeLSmile:     0.9,
+        ParamEyeRSmile:     0.9,
+        ParamEyeLOpen:      0.45 + 0.35 * Math.abs(Math.sin(slow)),
+        ParamEyeROpen:      0.45 + 0.35 * Math.abs(Math.sin(slow)),
+        ParamBrowLY:        0.8,
+        ParamBrowRY:        0.8,
+        ParamCheek:         1.0,
+        ParamBreath:        Math.abs(Math.sin(fast)),
+      };
+    },
+  };
+}
+
+function toggleExcited() {
+  if (_perfActive === 'excited') { stopPerformance(); return; }
+  startPerformance(_buildExcitedCfg());
+}
+
+// ── AI Control ───────────────────────────────────────────────────────────────
+
+// Keyword → action mapping (longest/most-specific entries first)
+const AI_KEYWORDS = [
+  { words: ['jump', 'leap', 'bounce', 'hop'],         action: () => performJump() },
+  { words: ['wave', 'hello', 'hi', 'greet', 'hey'],   action: () => performWaveBig() },
+  { words: ['danc', 'groove', 'boogie', 'move'],       action: () => startPerformance(_buildDanceCfg()) },
+  { words: ['talk', 'speak', 'chat', 'say', 'speech'], action: () => startPerformance(_buildTalkCfg()) },
+  { words: ['excit', 'yay', 'woah', 'wow', 'yeah', 'whoa', 'awesome'],
+                                                       action: () => startPerformance(_buildExcitedCfg()) },
+  { words: ['happy', 'joy', 'smile'],                  action: () => { applyExpression('happy'); } },
+  { words: ['sad', 'cry', 'tear', 'unhappy'],          action: () => { applyExpression('sad'); } },
+  { words: ['angry', 'mad', 'rage'],                   action: () => { applyExpression('angry'); } },
+  { words: ['surpris', 'shock', 'omg'],                action: () => { applyExpression('surprised'); } },
+  { words: ['wink', 'flirt'],                          action: () => { applyExpression('wink'); } },
+  { words: ['idle', 'rest', 'relax', 'stop', 'calm'],  action: () => stopAll() },
+  { words: ['tap'],                                    action: () => { stopPerformance(); playMotion('Tap', 0); } },
+  { words: ['flick'],                                  action: () => { stopPerformance(); playMotion('Flick', 0); } },
+];
+
+const AI_REPLIES = {
+  jump:     '🦘 Okay, I\'m jumping!',
+  wave:     '👋 Hello there~!',
+  danc:     '💃 Let\'s dance!',
+  talk:     '💬 Sure, I\'ll keep talking!',
+  excit:    '🌟 YAAAY!',
+  happy:    '😊 Feeling happy!',
+  sad:      '😢 Aww…',
+  angry:    '😠 Grr!',
+  surpris:  '😲 Whoa!!',
+  wink:     '😉 Hehe~',
+  idle:     '😌 Taking it easy.',
+  tap:      '👆 *tap tap*',
+  flick:    '💨 *whoosh*',
+};
+
+function sendAiText(mode) {
+  const inputId = mode === 'pro' ? 'ai-text-pro' : 'ai-text';
+  const replyEl = document.getElementById('ai-reply');
+  const el      = document.getElementById(inputId);
+  if (!el) return;
+  const raw = el.value.trim().toLowerCase();
+  el.value = '';
+  if (!raw) return;
+
+  let matched = false;
+  for (const kv of AI_KEYWORDS) {
+    if (kv.words.some(w => raw.includes(w))) {
+      kv.action();
+      // Find reply
+      const key = kv.words[0];
+      const reply = AI_REPLIES[key] || `✅ Doing: ${key}!`;
+      if (replyEl) replyEl.textContent = reply;
+      matched = true;
+      break;
+    }
+  }
+  if (!matched && replyEl) {
+    replyEl.textContent = '🤔 I don\'t know that one. Try: jump, dance, wave, talk, excited…';
+  }
+}
+
+// Auto-cycle state
+let _aiAutoTimer = null;
+const AI_AUTO_ACTIONS = [
+  () => performJump(),
+  () => startPerformance(_buildDanceCfg()),
+  () => performWaveBig(),
+  () => startPerformance(_buildTalkCfg()),
+  () => startPerformance(_buildExcitedCfg()),
+  () => { stopPerformance(); playMotion('Tap', 0); },
+  () => { stopPerformance(); playMotion('Flick', Math.random() < 0.5 ? 0 : 1); },
+];
+
+function toggleAiAuto(enabled) {
+  // Keep both checkboxes in sync
+  const easy = document.getElementById('chk-ai-auto');
+  const pro  = document.getElementById('chk-ai-auto-pro');
+  if (easy) easy.checked = enabled;
+  if (pro)  pro.checked  = enabled;
+
+  if (!enabled) {
+    if (_aiAutoTimer) { clearTimeout(_aiAutoTimer); _aiAutoTimer = null; }
+    return;
+  }
+  _scheduleNextAiAction();
+}
+
+function _scheduleNextAiAction() {
+  // Pick a random action, run it, then schedule the next one after a random delay
+  const fn = AI_AUTO_ACTIONS[Math.floor(Math.random() * AI_AUTO_ACTIONS.length)];
+  fn();
+  // Next action in 5 – 12 seconds
+  const delay = 5000 + Math.random() * 7000;
+  _aiAutoTimer = setTimeout(_scheduleNextAiAction, delay);
+}
+
+// ── Legacy wrapper kept for compatibility ────────────────────────────────────
+function playWaveHello() { performWaveBig(); }
 
 function toggleTracking(enabled) {
   if (!model) return;
@@ -636,7 +1101,7 @@ function toggleTracking(enabled) {
 function toggleManual(enabled) {
   manualMode = enabled;
   if (enabled) {
-    stopMotion();
+    stopAll();
     setStatus('🕹 Manual mode ON', 1500);
   } else {
     model && model.motion('Idle');
@@ -670,6 +1135,7 @@ function setScale(v) {
 function applyExpression(name) {
   const preset = EXPRESSIONS[name];
   if (!preset || !model) return;
+  stopPerformance();
   manualMode = true;
   // Uncheck manual params toggle in pro panel if visible
   const chkManual = document.getElementById('chk-manual');
