@@ -164,6 +164,7 @@ SYSTEM_PROMPT_TEMPLATE = textwrap.dedent("""
     • Add dance or excited for high-energy moments.
     • Use jump for surprising/emphasis moments.
     • End with wave_big or idle.
+    • The plan will loop automatically if the total is less than 70 seconds, so aim for the full ~70 s.
 """).strip()
 
 
@@ -205,7 +206,7 @@ def _validate_motion_plan(raw) -> Optional[list]:
             duration = float(entry["duration"])
         except (KeyError, TypeError, ValueError):
             duration = 3.0
-        duration = max(0.5, min(duration, 30.0))
+        duration = max(0.5, min(duration, 30.0))  # 30 s cap: generous but prevents runaway acts
         clean.append({"motion": motion, "duration": duration})
     return clean if clean else None
 

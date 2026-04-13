@@ -40,7 +40,8 @@ const _eio   = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; // ea
 // Designed for the capture virtual clock.
 
 function _perfJump(t) {
-  const arc = Math.sin(Math.PI * _clamp(t / 1.8, 0, 1));
+  // t is guaranteed to be in [0, duration] by the advanceFrame scheduler
+  const arc = Math.sin(Math.PI * (t / 1.8));
   const ea  = _eio(arc);
   return {
     ParamBodyAngleY:  -8  * arc,
@@ -206,8 +207,10 @@ function _buildActsFromPlan(plan) {
     wave:     (d) => ({ duration: d, type: 'builtin', group: 'Wave',    index: 0 }),
     tap:      (d) => ({ duration: d, type: 'builtin', group: 'Tap',     index: 0 }),
     flick:    (d) => ({ duration: d, type: 'builtin', group: 'Flick',   index: 0 }),
-    jump:     (d) => ({ duration: Math.min(d, 2.5), type: 'perf', fn: _perfJump,    loop: false }),
-    wave_big: (d) => ({ duration: Math.min(d, 4.5), type: 'perf', fn: _perfWave,    loop: false }),
+    // Max durations for one-shot (non-looping) performances match their animation
+    // length with a small buffer: jump ≈ 1.8 s, wave_big ≈ 3.5 s.
+    jump:     (d) => ({ duration: Math.min(d, 2.0), type: 'perf', fn: _perfJump,    loop: false }),
+    wave_big: (d) => ({ duration: Math.min(d, 4.0), type: 'perf', fn: _perfWave,    loop: false }),
     dance:    (d) => ({ duration: d, type: 'perf', fn: _perfDance,   loop: true,  period: 2.0 }),
     talk:     (d) => ({ duration: d, type: 'perf', fn: _perfTalk,    loop: true,  period: 4.0 }),
     excited:  (d) => ({ duration: d, type: 'perf', fn: _perfExcited, loop: true,  period: 1.2 }),
@@ -323,7 +326,9 @@ async function init() {
       const params = act.fn(t);
       const core   = model.internalModel.coreModel;
       for (const [id, val] of Object.entries(params)) {
-        try { core.setParameterValueById(id, val); } catch (_) {}
+        try { core.setParameterValueById(id, val); } catch (err) {
+          console.debug('[capture] setParam failed:', id, err.message);
+        }
       }
     }
 

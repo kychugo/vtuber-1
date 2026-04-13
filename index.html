@@ -6,7 +6,9 @@
   <title>Miku VTuber Controller</title>
 
   <!-- Load Cubism 4 Core first (required by pixi-live2d-display) -->
-  <!-- Primary CDN: Live2D official. Fallback: jsDelivr mirror. -->
+  <!-- Primary CDN: Live2D official SDK. -->
+  <!-- Fallback (onerror): community mirror on jsDelivr — use as last resort only, -->
+  <!-- as it is an unofficial copy. Replace with an official mirror if one becomes available. -->
   <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"
           onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2dcubismcore.min.js';document.head.appendChild(s);})()"></script>
   <!-- PIXI.js v6 -->
@@ -1048,7 +1050,7 @@ function sendAiText(mode) {
     }
   }
   if (!matched && replyEl) {
-    replyEl.textContent = '🤔 I don\'t know that one. Try: jump, dance, wave, talk, excited…';
+    replyEl.textContent = '🤔 I don\'t know that one. Try: jump, dance, wave, wave_big, talk, excited, tap, flick, happy, sad, angry, surprised, idle…';
   }
 }
 
