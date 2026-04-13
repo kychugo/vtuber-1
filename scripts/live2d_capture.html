@@ -160,7 +160,7 @@ function _perfExcited(t) {
   };
 }
 
-// ── Motion act schedule (total ≈ 70 s) ───────────────────────────────────────
+// ── Motion act schedule (total ≈ 72 s) ───────────────────────────────────────
 // Each act runs for `duration` seconds, then the next begins automatically.
 // 'builtin' acts play a .motion3.json group; 'perf' acts use the procedural
 // functions above with virtual-clock time tracking.
@@ -185,7 +185,7 @@ const ACTS = [
   { duration: 3.6,  type: 'perf',   fn: _perfExcited, loop: true,  period: 1.2 },
   { duration: 3.5,  type: 'builtin', group: 'Wave',    index: 0 },
   { duration: 2.0,  type: 'builtin', group: 'Idle',    index: 2 },
-  // Remaining ~3 s covered by Idle loop in cycler
+  // List cycles back to index 0 once exhausted (see scheduler below)
 ];
 
 async function init() {
@@ -284,7 +284,6 @@ async function init() {
 
     // ── Auto-blink overlay (runs in all modes) ───────────────────────────────
     let _blinkTimer = 0, _nextBlink = 3.5;
-    let _enhTime    = 0;
 
     // ── advanceFrame (called by Puppeteer each frame) ────────────────────────
     window.advanceFrame = function (ms) {
@@ -311,21 +310,22 @@ async function init() {
         _applyActParams(act, t);
       }
 
-      // 4. Auto-blink overlay (skip when procedural anim controls eyes)
-      _enhTime    += dtSec;
-      _blinkTimer += dtSec;
-      if (_blinkTimer >= _nextBlink) {
-        const phase = _blinkTimer - _nextBlink;
-        const half  = 0.08;
-        if (phase < half * 2) {
-          const openness = phase < half ? 1 - phase / half : (phase - half) / half;
-          const clamped  = _clamp(openness, 0, 1);
-          const core     = model.internalModel.coreModel;
-          try { core.setParameterValueById('ParamEyeLOpen', clamped); } catch (_) {}
-          try { core.setParameterValueById('ParamEyeROpen', clamped); } catch (_) {}
-        } else {
-          _blinkTimer = 0;
-          _nextBlink  = 3 + Math.random() * 3;
+      // 4. Auto-blink overlay (skip when procedural anim may be controlling eyes)
+      if (!_perfMode) {
+        _blinkTimer += dtSec;
+        if (_blinkTimer >= _nextBlink) {
+          const phase = _blinkTimer - _nextBlink;
+          const half  = 0.08;
+          if (phase < half * 2) {
+            const openness = phase < half ? 1 - phase / half : (phase - half) / half;
+            const clamped  = _clamp(openness, 0, 1);
+            const core     = model.internalModel.coreModel;
+            try { core.setParameterValueById('ParamEyeLOpen', clamped); } catch (_) {}
+            try { core.setParameterValueById('ParamEyeROpen', clamped); } catch (_) {}
+          } else {
+            _blinkTimer = 0;
+            _nextBlink  = 3 + Math.random() * 3;
+          }
         }
       }
 
