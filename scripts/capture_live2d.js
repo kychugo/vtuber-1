@@ -72,8 +72,9 @@ function startFFmpeg(output, fps) {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--use-gl=swiftshader',
+      '--enable-webgl',
+      '--use-gl=angle',
+      '--use-angle=swiftshader',
     ],
   });
 
