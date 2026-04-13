@@ -26,11 +26,24 @@ const { spawn }  = require('child_process');
 const process    = require('process');
 
 // ── CLI arguments ────────────────────────────────────────────────────────────
-const [,, serverPort, outputMp4, durationStr, fpsStr] = process.argv;
+const [,, serverPort, outputMp4, durationStr, fpsStr, motionPlanJson] = process.argv;
 
 if (!serverPort || !outputMp4 || !durationStr || !fpsStr) {
-  console.error('Usage: node capture_live2d.js <port> <output.mp4> <duration_secs> <fps>');
+  console.error('Usage: node capture_live2d.js <port> <output.mp4> <duration_secs> <fps> [motion_plan_json]');
   process.exit(1);
+}
+
+// Optional AI-generated motion plan (JSON array from generate_original_short.py).
+// When present it overrides the built-in ACTS schedule inside live2d_capture.html.
+let motionPlan = null;
+if (motionPlanJson) {
+  try {
+    motionPlan = JSON.parse(motionPlanJson);
+    if (!Array.isArray(motionPlan) || motionPlan.length === 0) motionPlan = null;
+  } catch (e) {
+    console.warn('[capture] Could not parse motion_plan JSON, using built-in schedule:', e.message);
+    motionPlan = null;
+  }
 }
 
 const DURATION     = parseFloat(durationStr);
@@ -79,6 +92,15 @@ function startFFmpeg(output, fps) {
   });
 
   const page = await browser.newPage();
+
+  // Inject the AI motion plan before any page scripts run so that
+  // live2d_capture.html can read window.motionPlan inside its init() function.
+  if (motionPlan) {
+    console.log(`[capture] Injecting AI motion plan (${motionPlan.length} acts)`);
+    await page.evaluateOnNewDocument((plan) => {
+      window.motionPlan = plan;
+    }, motionPlan);
+  }
 
   // Exact pixel viewport with no scaling
   await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
