@@ -32,6 +32,11 @@ const MODEL_PATH = '/miku_sample_t04.model3.json';
 window.modelReady = false;
 window.modelError = null;
 
+// Exposed after init so Puppeteer can drive every frame deterministically.
+// Call window.nextFrame(frameMs) before each screenshot; it advances the
+// simulated clock by exactly frameMs milliseconds and forces a render.
+window.nextFrame = null;
+
 async function init() {
   try {
     const canvas = document.getElementById('canvas');
@@ -40,8 +45,6 @@ async function init() {
       view: canvas,
       width: 1080,
       height: 1920,
-      // Gradient background (anime teal-to-purple), rendered as a solid colour here;
-      // real gradient is drawn via a Graphics object below.
       transparent: true,
       antialias: true,
       resolution: 1,
@@ -49,14 +52,8 @@ async function init() {
     });
 
     // ── Gradient background drawn with Graphics ──────────────────────────────
-    const bg = new PIXI.Graphics();
-    // Top colour  #1a0533 (dark purple)
-    // Bottom colour #00c8a0 (teal)
-    // Approximate with rectangles of varying alpha / layered fills
     const gradient = app.renderer.generateTexture(
       (() => {
-        const g = new PIXI.Graphics();
-        // Use a canvas-based texture for a real gradient
         const cvs = document.createElement('canvas');
         cvs.width = 1080;
         cvs.height = 1920;
@@ -82,7 +79,6 @@ async function init() {
 
     app.stage.addChild(model);
 
-    // Fill 90 % of the frame height, centred horizontally, anchored at centre
     const scale = Math.min(
       1080 / model.internalModel.originalWidth,
       1920 / model.internalModel.originalHeight
@@ -94,6 +90,44 @@ async function init() {
 
     // Start idle animation loop
     model.motion('Idle');
+
+    // ── Switch to deterministic manual-tick mode ─────────────────────────────
+    // Stop the rAF-driven auto-tick so that ONLY our explicit nextFrame()
+    // calls advance the animation.  This eliminates the variable-dt jitter
+    // that causes the Live2D character to shake in the captured video.
+    app.ticker.stop();
+    // Also stop the shared ticker in case pixi-live2d-display registered there.
+    if (PIXI.Ticker.shared !== app.ticker) {
+      PIXI.Ticker.shared.stop();
+    }
+
+    // Warm up: advance 90 frames of animation so the idle motion and physics
+    // spring settle before recording begins.  The settle clock uses 60 fps —
+    // the standard Live2D physics tick rate — regardless of the capture FPS,
+    // because this is purely about letting the spring simulation converge.
+    const SETTLE_FPS = 60;
+    const SETTLE_FRAME_MS = 1000 / SETTLE_FPS;
+    let simTime = performance.now();
+    for (let i = 0; i < 90; i++) {
+      simTime += SETTLE_FRAME_MS;
+      app.ticker.update(simTime);
+      if (PIXI.Ticker.shared !== app.ticker) {
+        PIXI.Ticker.shared.update(simTime);
+      }
+    }
+
+    // Expose the frame-advance function for the Puppeteer capture loop.
+    window._simTime = simTime;
+    window.nextFrame = function(frameMs) {
+      window._simTime += frameMs;
+      app.ticker.update(window._simTime);
+      if (PIXI.Ticker.shared !== app.ticker) {
+        PIXI.Ticker.shared.update(window._simTime);
+      }
+      // Explicit render ensures the canvas reflects the new state before
+      // Puppeteer screenshots it (belt-and-suspenders alongside ticker render).
+      app.renderer.render(app.stage);
+    };
 
     window.modelReady = true;
   } catch (err) {

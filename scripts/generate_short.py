@@ -382,25 +382,28 @@ def compose_video(
     total_duration = speech_duration + AUDIO_BUFFER_SECONDS
     total_frames = max(int(total_duration * VIDEO_FPS) + 1, 1)
 
-    # Zoom increment to reach +15% over the video
-    zoom_inc = 0.15 / total_frames
-    # Scale background 20% larger than output to have panning room during zoom
-    bg_w = int(VIDEO_WIDTH * 1.2)
-    bg_h = int(VIDEO_HEIGHT * 1.2)
+    # Ken Burns: zoom from 1.0× to (1 + ZOOM_RANGE)× over the full video.
+    ZOOM_RANGE = 0.15  # 15 % zoom-in
+    # Scale background larger than output to have panning room during zoom.
+    bg_w = int(VIDEO_WIDTH * (1 + ZOOM_RANGE + 0.05))
+    bg_h = int(VIDEO_HEIGHT * (1 + ZOOM_RANGE + 0.05))
 
     srt_escaped = str(srt_path).replace("\\", "/").replace(":", "\\:")
 
     # ── video filter ─────────────────────────────────────────────────────────
-    # [bg]: Ken Burns — scale large, crop, slow zoom centered
+    # [bg]: Ken Burns slow zoom-in over the full video.
+    # Use the frame-number variable `n` in the z= expression instead of
+    # accumulating zoom+inc each frame.  This avoids floating-point drift
+    # that makes the zoompan filter produce a jittery/shaky output.
     bg_vf = (
         f"[0:v]"
         f"scale={bg_w}:{bg_h}:force_original_aspect_ratio=increase,"
         f"crop={bg_w}:{bg_h},"
         f"zoompan="
-        f"z='min(zoom+{zoom_inc:.8f},1.15)':"
-        f"x='iw/2-(iw/zoom/2)':"
-        f"y='ih/2-(ih/zoom/2)':"
-        f"d={total_frames}:s={VIDEO_WIDTH}x{VIDEO_HEIGHT}:fps={VIDEO_FPS}"
+        f"z='1+{ZOOM_RANGE}*min(n,{total_frames}-1)/max({total_frames}-1,1)':"
+        f"x='(iw-iw/zoom)/2':"
+        f"y='(ih-ih/zoom)/2':"
+        f"d=1:s={VIDEO_WIDTH}x{VIDEO_HEIGHT}:fps={VIDEO_FPS}"
         f"[bg];"
     )
     # [outv]: subtitle bar + burned-in captions

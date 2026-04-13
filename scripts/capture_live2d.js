@@ -37,7 +37,7 @@ const DURATION     = parseFloat(durationStr);
 const FPS          = parseInt(fpsStr, 10);
 const WIDTH        = 1080;
 const HEIGHT       = 1920;
-const FRAME_MS     = Math.round(1000 / FPS);
+const FRAME_MS     = 1000 / FPS;   // exact, not rounded — avoids accumulated drift
 const TOTAL_FRAMES = Math.ceil(DURATION * FPS);
 
 const CAPTURE_URL = `http://localhost:${serverPort}/scripts/live2d_capture.html`;
@@ -101,24 +101,23 @@ function startFFmpeg(output, fps) {
   }
   console.log('[capture] Model ready — starting frame capture');
 
-  // Let the idle animation settle for half a second before recording
-  await new Promise(r => setTimeout(r, 500));
+  // live2d_capture.html already settled the animation for 1.5 s during init
+  // and switched the PIXI ticker to manual mode.  No additional wait needed.
 
   const ff = startFFmpeg(outputMp4, FPS);
 
-  // Capture each frame as a PNG and pipe directly into FFmpeg
+  // Capture each frame deterministically:
+  //   1. Advance the simulated clock by exactly FRAME_MS ms (no wall-clock drift).
+  //   2. Screenshot the canvas — which is already updated by the nextFrame call.
+  // This eliminates the variable-dt jitter that caused the character to shake.
   for (let i = 0; i < TOTAL_FRAMES; i++) {
+    await page.evaluate((ms) => window.nextFrame(ms), FRAME_MS);
     const pngBuf = await page.screenshot({ type: 'png', omitBackground: false });
     ff.stdin.write(pngBuf);
 
     if ((i + 1) % FPS === 0 || i === TOTAL_FRAMES - 1) {
       const elapsed = ((i + 1) / FPS).toFixed(1);
       console.log(`[capture] ${i + 1}/${TOTAL_FRAMES} frames (${elapsed}s)`);
-    }
-
-    // Wait the appropriate inter-frame interval (let the browser animate)
-    if (i < TOTAL_FRAMES - 1) {
-      await new Promise(r => setTimeout(r, FRAME_MS));
     }
   }
 
